@@ -1,6 +1,6 @@
 /* Service worker ringan: hanya menyimpan kerangka aplikasi (halaman dan ikon).
    Permintaan ke server Apps Script (lintas asal, POST) tidak pernah disentuh. */
-const VERSI = 'absensi-v2';
+const VERSI = 'absensi-v3';
 const KERANGKA = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {

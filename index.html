@@ -177,6 +177,46 @@ progress{width:100%;height:10px;accent-color:var(--utama)}
 .tb.besar{width:100%;min-height:58px;font-size:17px;border-radius:14px}
 .centang-besar{width:72px;height:72px;margin:6px auto 0;border-radius:50%;display:grid;place-items:center;background:var(--ok);color:#fff;animation:masuk .3s ease-out}
 .pesan-galat{margin-bottom:10px}
+
+/* pemindai dan layar QR */
+.pemindai{margin:6px 0 10px}
+.bingkai-video{position:relative;border-radius:16px;overflow:hidden;background:#0e1a17;aspect-ratio:4/3;max-height:46dvh;margin:0 auto}
+.video-pindai{width:100%;height:100%;object-fit:cover;display:block}
+.bidik{position:absolute;inset:16% 22%;border:3px solid var(--aksen);border-radius:14px;box-shadow:0 0 0 999px rgba(0,0,0,.3);pointer-events:none}
+.qr-wadah{width:100%;max-width:560px;margin:0 auto}
+.qr-kartu{width:min(78vw,52vh,340px);margin:10px auto;background:#fff;border-radius:18px;padding:8px;border:3px solid var(--aksen)}
+.qr-kartu.besar{width:min(84vw,54vh,520px)}
+.qr-kartu svg{display:block;width:100%;height:auto}
+.qr-kode{text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:clamp(18px,4.5vw,30px);letter-spacing:.06em;font-weight:600}
+.qr-bar{height:8px;border-radius:4px;background:var(--utama-muda);margin:10px auto;max-width:340px;overflow:hidden}
+.qr-bar span{display:block;height:100%;width:0;background:var(--utama);transition:width .25s linear}
+.kotak-tampil{padding:10px;border:1px solid var(--garis);border-radius:16px;background:#fff}
+.langkah{padding-left:20px;margin:6px 0}.langkah li{margin:0 0 8px}
+.layar-qr{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:10px;padding:calc(18px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));color:#fff;text-align:center;
+  background-color:var(--utama);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56'%3E%3Cg fill='none' stroke='white' stroke-opacity='.09' stroke-width='1'%3E%3Crect x='11' y='11' width='34' height='34'/%3E%3Crect x='11' y='11' width='34' height='34' transform='rotate(45 28 28)'/%3E%3C/g%3E%3C/svg%3E")}
+.layar-qr .qr-bar{background:rgba(255,255,255,.22)}.layar-qr .qr-bar span{background:var(--aksen)}
+.layar-qr .kecil{color:rgba(255,255,255,.85)}
+.qr-kepala{display:flex;gap:12px;align-items:center;text-align:left;font-family:var(--font-judul);font-size:20px}
+.qr-kaki{display:flex;gap:10px}
+
+/* kartu guru */
+.kisi-kartu{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:14px}
+.kartu-id{background:#fff;border:1px solid var(--garis);border-radius:12px;overflow:hidden;break-inside:avoid;display:flex;flex-direction:column}
+.kartu-kepala{display:flex;gap:8px;align-items:center;background:var(--utama);color:#fff;padding:8px 10px;font-size:12px;line-height:1.25}
+.kartu-kepala b{display:block;font-size:13px}
+.kartu-badan{display:flex;gap:10px;align-items:center;padding:10px;flex:1;font-size:13px}
+.kartu-teks{flex:1;min-width:0}
+.kartu-nama{font-family:var(--font-judul);font-weight:600;font-size:16px;margin-bottom:4px;overflow-wrap:anywhere}
+.kartu-qr{width:96px;flex:none}.kartu-qr svg{display:block;width:100%;height:auto}
+@media print{
+  @page{size:A4;margin:8mm}
+  body{background:#fff}
+  .nav,.tanpa-cetak,#toasts,#bar,.lapis{display:none!important}
+  .shell{display:block;padding:0}.isi{max-width:none;padding:0}
+  .kisi-kartu{grid-template-columns:repeat(2,85.6mm);gap:4mm;justify-content:center;margin-top:0}
+  .kartu-id{width:85.6mm;height:54mm;border:.3mm solid #999;border-radius:3mm}
+  .kartu-kepala{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition:none!important}}
 </style>
 </head>
@@ -194,7 +234,7 @@ progress{width:100%;height:10px;accent-color:var(--utama)}
 // Alamat Web App Apps Script (berakhiran /exec) dibaca dari berkas config.js.
 // Bila kosong, alamat diminta saat pertama kali dibuka dan disimpan di perangkat itu.
 const API_URL_DEFAULT = String(window.ABSENSI_API_URL || '').trim();
-const VERSI = '1.1';
+const VERSI = '1.2';
 const LS = window.localStorage;
 const K = { api: 'absensi.api', token: 'absensi.token', dev: 'absensi.dev', suara: 'absensi.suara', pub: 'absensi.pub' };
 const TZ = 'Asia/Jakarta';
@@ -267,6 +307,426 @@ function ikon(n, u) {
   return s;
 }
 
+/*QR_MULAI*/
+// Pustaka QR kecil, mandiri, khusus QR versi 1 (21x21), koreksi galat Q, mode alfanumerik (maks. 16 karakter).
+// Cukup untuk token 16 karakter heksadesimal huruf besar. Pembuat dan pembaca memakai tata letak standar ISO 18004.
+const QR = (function () {
+  const N = 21, DATA_CW = 13, EC_CW = 13;
+  const ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+
+  /* ---------- Medan Galois GF(256) ---------- */
+  const EXP = new Array(512), LOG = new Array(256);
+  (function () {
+    let x = 1;
+    for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+    for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  })();
+  const gfMul = function (a, b) { return a && b ? EXP[LOG[a] + LOG[b]] : 0; };
+  const gfDiv = function (a, b) { return a ? EXP[(LOG[a] - LOG[b] + 255) % 255] : 0; };
+
+  function rsGenerator(n) {
+    let g = [1];
+    for (let i = 0; i < n; i++) {
+      const next = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++) { next[j] ^= g[j]; next[j + 1] ^= gfMul(g[j], EXP[i]); }
+      g = next;
+    }
+    return g;
+  }
+  function rsEncode(data, n) {
+    const g = rsGenerator(n);
+    const res = data.concat(new Array(n).fill(0));
+    for (let i = 0; i < data.length; i++) {
+      const c = res[i];
+      if (c) for (let j = 0; j < g.length; j++) res[i + j] ^= gfMul(g[j], c);
+    }
+    return res.slice(data.length);
+  }
+  // Koreksi galat Reed-Solomon (Berlekamp-Massey). Mengembalikan kata kode terkoreksi atau null.
+  function rsDecode(cw, nec) {
+    const n = cw.length;
+    const S = [];
+    let ada = false;
+    for (let j = 0; j < nec; j++) {
+      let s = 0;
+      for (let i = 0; i < n; i++) s = gfMul(s, EXP[j]) ^ cw[i];
+      S.push(s);
+      if (s) ada = true;
+    }
+    if (!ada) return cw.slice();
+    let C = [1], B = [1], L = 0, m = 1, b = 1;
+    for (let i = 0; i < nec; i++) {
+      let d = S[i];
+      for (let j = 1; j <= L; j++) d ^= gfMul(C[j] || 0, S[i - j]);
+      if (d === 0) { m++; continue; }
+      const T = C.slice();
+      const coef = gfDiv(d, b);
+      while (C.length < B.length + m) C.push(0);
+      for (let j = 0; j < B.length; j++) C[j + m] ^= gfMul(coef, B[j]);
+      if (2 * L <= i) { L = i + 1 - L; B = T; b = d; m = 1; } else { m++; }
+    }
+    if (L > nec / 2) return null;
+    const hasil = cw.slice();
+    const posisi = [];
+    for (let p = 0; p < n; p++) {
+      const xinv = EXP[(255 - p) % 255];
+      let v = 0, pw = 1;
+      for (let j = 0; j < C.length; j++) { v ^= gfMul(C[j], pw); pw = gfMul(pw, xinv); }
+      if (v === 0) posisi.push(p);
+    }
+    if (posisi.length !== L) return null;
+    // Omega(x) = S(x) * Lambda(x) mod x^nec
+    const omega = new Array(nec).fill(0);
+    for (let i = 0; i < nec; i++) for (let j = 0; j < C.length && j <= i; j++) omega[i] ^= gfMul(C[j], S[i - j]);
+    posisi.forEach(function (p) {
+      const X = EXP[p], xinv = EXP[(255 - p) % 255];
+      let om = 0, pw = 1;
+      for (let j = 0; j < nec; j++) { om ^= gfMul(omega[j], pw); pw = gfMul(pw, xinv); }
+      let dl = 0; pw = 1;
+      for (let j = 1; j < C.length; j += 2) { dl ^= gfMul(C[j], pw); pw = gfMul(pw, gfMul(xinv, xinv)); }
+      if (!dl) return;
+      hasil[n - 1 - p] ^= gfMul(X, gfDiv(om, dl));
+    });
+    for (let j = 0; j < nec; j++) {
+      let s = 0;
+      for (let i = 0; i < n; i++) s = gfMul(s, EXP[j]) ^ hasil[i];
+      if (s) return null;
+    }
+    return hasil;
+  }
+
+  /* ---------- Tata letak bersama ---------- */
+  function posisiFormat() {
+    const a = [], b = [];
+    for (let i = 0; i <= 5; i++) a.push([i, 8]);
+    a.push([7, 8]); a.push([8, 8]); a.push([8, 7]);
+    for (let i = 9; i < 15; i++) a.push([8, 14 - i]);
+    for (let i = 0; i < 8; i++) b.push([8, N - 1 - i]);
+    for (let i = 8; i < 15; i++) b.push([N - 15 + i, 8]);
+    return [a, b];
+  }
+  const POS_FORMAT = posisiFormat();
+
+  function cetakFungsi() {
+    const fn = [];
+    for (let i = 0; i < N; i++) fn.push(new Array(N).fill(false));
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      if ((r < 8 && c < 8) || (r < 8 && c >= N - 8) || (r >= N - 8 && c < 8)) fn[r][c] = true;
+      if (r === 6 || c === 6) fn[r][c] = true;
+    }
+    POS_FORMAT.forEach(function (arr) { arr.forEach(function (p) { fn[p[0]][p[1]] = true; }); });
+    fn[N - 8][8] = true;
+    return fn;
+  }
+  const FUNGSI = cetakFungsi();
+
+  function urutanData() {
+    const urut = [];
+    for (let right = N - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let vert = 0; vert < N; vert++) {
+        for (let j = 0; j < 2; j++) {
+          const x = right - j;
+          const naik = ((right + 1) & 2) === 0;
+          const y = naik ? N - 1 - vert : vert;
+          if (!FUNGSI[y][x]) urut.push([y, x]);
+        }
+      }
+    }
+    return urut;
+  }
+  const URUT = urutanData();
+
+  function maskInvert(mask, y, x) {
+    switch (mask) {
+      case 0: return (x + y) % 2 === 0;
+      case 1: return y % 2 === 0;
+      case 2: return x % 3 === 0;
+      case 3: return (x + y) % 3 === 0;
+      case 4: return (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0;
+      case 5: return x * y % 2 + x * y % 3 === 0;
+      case 6: return (x * y % 2 + x * y % 3) % 2 === 0;
+      default: return ((x + y) % 2 + x * y % 3) % 2 === 0;
+    }
+  }
+
+  function bitFormat(mask) {
+    const data = (3 << 3) | mask; // tingkat Q = 3
+    let rem = data;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    return ((data << 10) | rem) ^ 0x5412;
+  }
+
+  /* ---------- Pembuat ---------- */
+  function dataKataKode(teks) {
+    if (!/^[0-9A-Z $%*+\-.\/:]+$/.test(teks) || teks.length > 16) throw new Error('Teks QR tidak didukung (maks. 16 karakter alfanumerik huruf besar).');
+    const bits = [];
+    const put = function (v, n) { for (let i = n - 1; i >= 0; i--) bits.push((v >>> i) & 1); };
+    put(2, 4); put(teks.length, 9);
+    for (let i = 0; i + 1 < teks.length; i += 2) put(ALNUM.indexOf(teks[i]) * 45 + ALNUM.indexOf(teks[i + 1]), 11);
+    if (teks.length % 2) put(ALNUM.indexOf(teks[teks.length - 1]), 6);
+    const kap = DATA_CW * 8;
+    put(0, Math.min(4, kap - bits.length));
+    while (bits.length % 8) bits.push(0);
+    for (let p = 0xec; bits.length < kap; p ^= 0xec ^ 0x11) put(p, 8);
+    const cw = [];
+    for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; cw.push(b); }
+    return cw;
+  }
+
+  function penalti(m) {
+    let skor = 0;
+    for (let sumbu = 0; sumbu < 2; sumbu++) {
+      for (let a = 0; a < N; a++) {
+        let jalan = 1, riwayat = '';
+        for (let b = 0; b < N; b++) {
+          const v = sumbu ? m[b][a] : m[a][b];
+          riwayat += v ? '1' : '0';
+          if (b > 0) {
+            const sebelum = sumbu ? m[b - 1][a] : m[a][b - 1];
+            if (v === sebelum) { jalan++; if (jalan === 5) skor += 3; else if (jalan > 5) skor++; } else jalan = 1;
+          }
+        }
+        const re = /10111010000|00001011101/g;
+        let k; while ((k = re.exec(riwayat)) !== null) { skor += 40; re.lastIndex = k.index + 1; }
+      }
+    }
+    for (let r = 0; r < N - 1; r++) for (let c = 0; c < N - 1; c++) { const v = m[r][c]; if (v === m[r][c + 1] && v === m[r + 1][c] && v === m[r + 1][c + 1]) skor += 3; }
+    let gelap = 0;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (m[r][c]) gelap++;
+    skor += Math.floor(Math.abs(gelap * 20 - N * N * 10) / (N * N)) * 10;
+    return skor;
+  }
+
+  function buat(teks) {
+    const data = dataKataKode(teks);
+    const cw = data.concat(rsEncode(data, EC_CW));
+    const bits = [];
+    cw.forEach(function (b) { for (let i = 7; i >= 0; i--) bits.push((b >>> i) & 1); });
+    let terbaik = null, skorTerbaik = Infinity;
+    for (let mask = 0; mask < 8; mask++) {
+      const m = [];
+      for (let i = 0; i < N; i++) m.push(new Array(N).fill(false));
+      // pola pencari (tiga sudut) beserta pemisahnya
+      [[0, 0], [0, N - 7], [N - 7, 0]].forEach(function (o) {
+        for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) {
+          const r = o[0] + dr, c = o[1] + dc;
+          if (r < 0 || c < 0 || r >= N || c >= N) continue;
+          const dalam = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
+          m[r][c] = dalam && (dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4));
+        }
+      });
+      for (let i = 8; i < N - 8; i++) { m[6][i] = i % 2 === 0; m[i][6] = i % 2 === 0; }
+      m[N - 8][8] = true;
+      URUT.forEach(function (p, i) { let v = i < bits.length ? bits[i] === 1 : false; if (maskInvert(mask, p[0], p[1])) v = !v; m[p[0]][p[1]] = v; });
+      const f = bitFormat(mask);
+      POS_FORMAT.forEach(function (arr) { arr.forEach(function (p, i) { m[p[0]][p[1]] = ((f >>> i) & 1) === 1; }); });
+      const s = penalti(m);
+      if (s < skorTerbaik) { skorTerbaik = s; terbaik = m; }
+    }
+    return terbaik;
+  }
+
+  function svg(m, opsi) {
+    opsi = opsi || {};
+    const tepi = opsi.tepi === undefined ? 4 : opsi.tepi;
+    const ukuran = N + tepi * 2;
+    let d = '';
+    for (let r = 0; r < N; r++) {
+      let c = 0;
+      while (c < N) {
+        if (m[r][c]) { let k = c; while (k < N && m[r][k]) k++; d += 'M' + (c + tepi) + ' ' + (r + tepi) + 'h' + (k - c) + 'v1h-' + (k - c) + 'z'; c = k; } else c++;
+      }
+    }
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + ukuran + ' ' + ukuran + '" shape-rendering="crispEdges" role="img" aria-label="Kode QR">' +
+      '<rect width="' + ukuran + '" height="' + ukuran + '" fill="' + (opsi.latar || '#fff') + '"/><path d="' + d + '" fill="' + (opsi.warna || '#000') + '"/></svg>';
+  }
+
+  /* ---------- Pembaca ---------- */
+  function binerkan(img, faktor) {
+    const w = img.width, h = img.height, px = img.data;
+    const gray = new Uint8Array(w * h);
+    for (let i = 0, j = 0; i < w * h; i++, j += 4) gray[i] = (px[j] * 299 + px[j + 1] * 587 + px[j + 2] * 114) / 1000;
+    const W = w + 1;
+    const integ = new Int32Array(W * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let baris = 0;
+      for (let x = 0; x < w; x++) { baris += gray[y * w + x]; integ[(y + 1) * W + x + 1] = integ[y * W + x + 1] + baris; }
+    }
+    const r = Math.max(8, Math.round(Math.min(w, h) / 14));
+    const bin = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+      for (let x = 0; x < w; x++) {
+        const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+        const jumlah = integ[y1 * W + x1] - integ[y0 * W + x1] - integ[y1 * W + x0] + integ[y0 * W + x0];
+        const rata = jumlah / ((x1 - x0) * (y1 - y0));
+        bin[y * w + x] = gray[y * w + x] < rata * faktor ? 1 : 0;
+      }
+    }
+    return bin;
+  }
+
+  function cekVertikal(bin, w, h, x, y, ms) {
+    let a1 = 0, a2 = 0, a3 = 0, b1 = 0, b2 = 0, b3 = 0, yy;
+    for (yy = y; yy >= 0 && bin[yy * w + x] === 1; yy--) a1++;
+    for (; yy >= 0 && bin[yy * w + x] === 0; yy--) a2++;
+    for (; yy >= 0 && bin[yy * w + x] === 1; yy--) a3++;
+    for (yy = y + 1; yy < h && bin[yy * w + x] === 1; yy++) b1++;
+    for (; yy < h && bin[yy * w + x] === 0; yy++) b2++;
+    for (; yy < h && bin[yy * w + x] === 1; yy++) b3++;
+    const pusat = a1 + b1, total = a3 + a2 + pusat + b2 + b3, m = total / 7;
+    if (m < 1.5) return null;
+    if (Math.abs(pusat - 3 * m) > 1.5 * m || Math.abs(a2 - m) > 0.8 * m || Math.abs(b2 - m) > 0.8 * m || Math.abs(a3 - m) > 0.8 * m || Math.abs(b3 - m) > 0.8 * m) return null;
+    return { y: (y - a1 + 1) + pusat / 2, ms: m };
+  }
+
+  function cariPencari(bin, w, h) {
+    const kandidat = [];
+    for (let y = 0; y < h; y++) {
+      const runs = [];
+      let cur = bin[y * w], len = 0, start = 0;
+      for (let x = 0; x < w; x++) {
+        const v = bin[y * w + x];
+        if (v === cur) len++; else { runs.push([cur, start, len]); cur = v; start = x; len = 1; }
+      }
+      runs.push([cur, start, len]);
+      for (let i = 0; i + 4 < runs.length; i++) {
+        if (runs[i][0] !== 1) continue;
+        const r = runs.slice(i, i + 5);
+        const total = r[0][2] + r[1][2] + r[2][2] + r[3][2] + r[4][2];
+        const ms = total / 7;
+        if (ms < 1.5) continue;
+        if (Math.abs(r[0][2] - ms) > 0.8 * ms || Math.abs(r[1][2] - ms) > 0.8 * ms || Math.abs(r[2][2] - 3 * ms) > 1.5 * ms || Math.abs(r[3][2] - ms) > 0.8 * ms || Math.abs(r[4][2] - ms) > 0.8 * ms) continue;
+        const cx = r[0][1] + total / 2;
+        const v = cekVertikal(bin, w, h, Math.min(w - 1, Math.max(0, Math.round(cx))), y, ms);
+        if (v) kandidat.push({ x: cx, y: v.y, ms: (ms + v.ms) / 2 });
+      }
+    }
+    const gugus = [];
+    kandidat.forEach(function (k) {
+      for (let i = 0; i < gugus.length; i++) {
+        const g = gugus[i];
+        if (Math.hypot(g.x - k.x, g.y - k.y) < Math.max(g.ms, k.ms) * 2) {
+          g.x = (g.x * g.n + k.x) / (g.n + 1); g.y = (g.y * g.n + k.y) / (g.n + 1); g.ms = (g.ms * g.n + k.ms) / (g.n + 1); g.n++;
+          return;
+        }
+      }
+      gugus.push({ x: k.x, y: k.y, ms: k.ms, n: 1 });
+    });
+    return gugus.filter(function (g) { return g.n >= 2; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 8);
+  }
+
+  function pilihTiga(f) {
+    let terbaik = null, skorTerbaik = Infinity;
+    for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) for (let k = j + 1; k < f.length; k++) {
+      const t = [f[i], f[j], f[k]];
+      const msMax = Math.max(t[0].ms, t[1].ms, t[2].ms), msMin = Math.min(t[0].ms, t[1].ms, t[2].ms);
+      if (msMax / msMin > 1.7) continue;
+      const d = [[0, 1], [0, 2], [1, 2]].map(function (p) { return Math.hypot(t[p[0]].x - t[p[1]].x, t[p[0]].y - t[p[1]].y); });
+      const urut = d.slice().sort(function (a, b) { return a - b; });
+      const sisi = (urut[0] + urut[1]) / 2;
+      if (Math.abs(urut[0] - urut[1]) / urut[1] > 0.3) continue;
+      const selisih = Math.abs(urut[2] - Math.SQRT2 * sisi) / urut[2];
+      if (selisih > 0.2) continue;
+      const skor = Math.abs(urut[0] - urut[1]) / sisi + selisih;
+      if (skor < skorTerbaik) { skorTerbaik = skor; terbaik = { t: t, d: d, sisi: sisi }; }
+    }
+    if (!terbaik) return null;
+    // titik siku-siku = sudut kiri atas; ia berseberangan dengan sisi terpanjang
+    const pasang = [[0, 1], [0, 2], [1, 2]], seberang = [2, 1, 0];
+    let idx = 0;
+    for (let i = 1; i < 3; i++) if (terbaik.d[i] > terbaik.d[idx]) idx = i;
+    const TL = terbaik.t[seberang[idx]];
+    const lain = [0, 1, 2].filter(function (i) { return i !== seberang[idx]; }).map(function (i) { return terbaik.t[i]; });
+    let TR = lain[0], BL = lain[1];
+    const sil = (TR.x - TL.x) * (BL.y - TL.y) - (TR.y - TL.y) * (BL.x - TL.x);
+    if (sil < 0) { const tmp = TR; TR = BL; BL = tmp; }
+    void pasang;
+    return { TL: TL, TR: TR, BL: BL, sisi: terbaik.sisi, ms: (TL.ms + TR.ms + BL.ms) / 3 };
+  }
+
+  function bandingFormat(bits) {
+    let terbaik = -1, jarak = 99;
+    for (let kode = 0; kode < 32; kode++) {
+      let rem = kode;
+      for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+      const penuh = ((kode << 10) | rem) ^ 0x5412;
+      let x = penuh ^ bits, d = 0;
+      while (x) { d += x & 1; x >>>= 1; }
+      if (d < jarak) { jarak = d; terbaik = kode; }
+    }
+    return jarak <= 3 ? terbaik : -1;
+  }
+
+  function uraiMatriks(mod) {
+    // format
+    let f = -1;
+    for (let s = 0; s < 2 && f < 0; s++) {
+      let bits = 0;
+      POS_FORMAT[s].forEach(function (p, i) { if (mod(p[0], p[1])) bits |= 1 << i; });
+      f = bandingFormat(bits);
+    }
+    if (f < 0) return null;
+    if ((f >> 3) !== 3) return null; // hanya tingkat Q
+    const mask = f & 7;
+    const bits = [];
+    URUT.forEach(function (p) { let v = mod(p[0], p[1]); if (maskInvert(mask, p[0], p[1])) v = !v; bits.push(v ? 1 : 0); });
+    const cw = [];
+    for (let i = 0; i + 7 < bits.length && cw.length < 26; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; cw.push(b); }
+    const benar = rsDecode(cw, EC_CW);
+    if (!benar) return null;
+    const dbits = [];
+    benar.slice(0, DATA_CW).forEach(function (b) { for (let i = 7; i >= 0; i--) dbits.push((b >>> i) & 1); });
+    let pos = 0;
+    const baca = function (n) { let v = 0; for (let i = 0; i < n; i++) v = (v << 1) | (dbits[pos++] || 0); return v; };
+    const mode = baca(4);
+    if (mode === 2) {
+      let n = baca(9), teks = '';
+      if (n > 16) return null;
+      while (n >= 2) { const v = baca(11); teks += ALNUM[Math.floor(v / 45)] + ALNUM[v % 45]; n -= 2; }
+      if (n === 1) teks += ALNUM[baca(6)];
+      return teks;
+    }
+    return null;
+  }
+
+  // Mencoba beberapa ambang binerisasi; berhenti pada yang pertama berhasil.
+  function baca(img) {
+    const faktor = [0.88, 0.76, 0.96, 0.68];
+    for (let i = 0; i < faktor.length; i++) {
+      const hasil = bacaSatu(img, faktor[i]);
+      if (hasil) return hasil;
+    }
+    return null;
+  }
+
+  function bacaSatu(img, faktor) {
+    const w = img.width, h = img.height;
+    const bin = binerkan(img, faktor);
+    const f = cariPencari(bin, w, h);
+    if (f.length < 3) return null;
+    const g = pilihTiga(f);
+    if (!g) return null;
+    const rasio = g.sisi / g.ms;
+    if (rasio < 11.5 || rasio > 16.5) return null; // bukan versi 1
+    const ex = { x: (g.TR.x - g.TL.x) / 14, y: (g.TR.y - g.TL.y) / 14 };
+    const ey = { x: (g.BL.x - g.TL.x) / 14, y: (g.BL.y - g.TL.y) / 14 };
+    const titik = function (r, c) { return { x: g.TL.x + (c - 3.5) * ex.x + (r - 3.5) * ey.x, y: g.TL.y + (c - 3.5) * ex.y + (r - 3.5) * ey.y }; };
+    const cuplik = function (x, y) { const xi = Math.round(x), yi = Math.round(y); return xi >= 0 && yi >= 0 && xi < w && yi < h ? bin[yi * w + xi] : 0; };
+    const mod = function (r, c) {
+      const p = titik(r + 0.5, c + 0.5);
+      const dx = (ex.x + ey.x) * 0.2, dy = (ex.y + ey.y) * 0.2;
+      let hitam = cuplik(p.x, p.y) + cuplik(p.x + dx, p.y + dy) + cuplik(p.x - dx, p.y - dy) + cuplik(p.x + (ex.x - ey.x) * 0.2, p.y + (ex.y - ey.y) * 0.2) + cuplik(p.x - (ex.x - ey.x) * 0.2, p.y - (ex.y - ey.y) * 0.2);
+      return hitam >= 3;
+    };
+    return uraiMatriks(mod);
+  }
+
+  return { buat: buat, svg: svg, baca: baca, ukuran: N, _rs: { encode: rsEncode, decode: rsDecode } };
+})();
+/*QR_SELESAI*/
+
 /* ================= Tanggal ================= */
 function hariIni() { return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date()); }
 function bulanIni() { return hariIni().slice(0, 7); }
@@ -327,10 +787,11 @@ function idPerangkat() {
   return d;
 }
 
-async function panggil(action, data) {
+async function panggil(action, data, opsi) {
+  const senyap = !!(opsi && opsi.senyap);
   const url = urlApi();
   if (!url) throw galat('API_BELUM_DIATUR', 'Alamat server belum diatur.');
-  progres(1);
+  if (!senyap) progres(1);
   try {
     for (let i = 0; ; i++) {
       let j;
@@ -350,7 +811,7 @@ async function panggil(action, data) {
       if (SESI_MATI.indexOf(j.kode) >= 0 && action !== 'login' && S.user) { keluarPaksa(j.pesan); }
       throw galat(j.kode, j.pesan);
     }
-  } finally { progres(-1); }
+  } finally { if (!senyap) progres(-1); }
 }
 
 // Jalankan aksi dengan tombol terkunci, lalu tampilkan hasilnya.
@@ -589,10 +1050,10 @@ const NAV = { beranda: ['Beranda', 'rumah'], izin: ['Izin', 'surat'], laporan: [
 const RUTE = {
   guru: { nav: ['beranda', 'izin', 'riwayat', 'akun'], semua: ['beranda', 'izin', 'riwayat', 'akun'] },
   kepsek: { nav: ['beranda', 'izin', 'laporan', 'keputusan', 'akun'], semua: ['beranda', 'izin', 'laporan', 'keputusan', 'akun'] },
-  admin: { nav: ['beranda', 'guru', 'laporan', 'pengaturan', 'lainnya'], semua: ['beranda', 'guru', 'laporan', 'pengaturan', 'lainnya', 'izin', 'absen', 'libur', 'pesan', 'keputusan', 'arsip', 'akun'] }
+  admin: { nav: ['beranda', 'guru', 'laporan', 'pengaturan', 'lainnya'], semua: ['beranda', 'guru', 'laporan', 'pengaturan', 'lainnya', 'izin', 'absen', 'libur', 'pesan', 'keputusan', 'arsip', 'akun', 'layarqr', 'kartu', 'absenkartu'] }
 };
-const INDUK = { izin: 'lainnya', absen: 'lainnya', libur: 'lainnya', pesan: 'lainnya', keputusan: 'lainnya', arsip: 'lainnya', akun: 'lainnya' };
-const PERAN = { admin: 'Administrator', kepsek: 'Kepala sekolah', guru: 'Guru' };
+const INDUK = { layarqr: 'lainnya', kartu: 'lainnya', absenkartu: 'lainnya', izin: 'lainnya', absen: 'lainnya', libur: 'lainnya', pesan: 'lainnya', keputusan: 'lainnya', arsip: 'lainnya', akun: 'lainnya' };
+const PERAN = { admin: 'Administrator', kepsek: 'Kepala sekolah', guru: 'Guru', layar: 'Layar QR sekolah' };
 
 function merek() {
   return h('div', { class: 'merek' }, logo(40), h('div', {}, h('b', { text: (S.pub && S.pub.nama_sekolah) || 'Absensi' }), h('span', { class: 'kecil', text: PERAN[S.user.role] })));
@@ -606,6 +1067,7 @@ function renderShell() {
 function segarkanMerek() { const m = $('.nav .merek'); if (m) m.replaceWith(merek()); }
 
 function masuk() {
+  if (S.user.role === 'layar') { tampilLayarQR(); return; }
   renderShell();
   tampil();
 }
@@ -615,6 +1077,7 @@ function tampil() {
   const peran = S.user.role;
   let rute = (location.hash.replace(/^#\//, '') || 'beranda').split('?')[0];
   if (RUTE[peran].semua.indexOf(rute) < 0) rute = 'beranda';
+  if (S.layarKomp) { S.layarKomp.berhenti(); S.layarKomp = null; }
   const id = ++renderId;
   const induk = (peran === 'admin' && INDUK[rute]) || rute;
   document.querySelectorAll('.nav a').forEach(function (a) { if (a.dataset.id === induk) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
@@ -883,7 +1346,7 @@ async function muatUsers(paksa) {
   if (!S.users || paksa) S.users = await panggil('admin_daftar_user');
   return S.users;
 }
-const ROLE_LABEL = { guru: 'Guru atau pegawai', kepsek: 'Kepala sekolah', admin: 'Administrator' };
+const ROLE_LABEL = { guru: 'Guru atau pegawai', kepsek: 'Kepala sekolah', admin: 'Administrator', layar: 'Layar QR sekolah (tablet)' };
 const STATUS_USER = [['aktif', 'Aktif'], ['cuti', 'Cuti'], ['tugas_belajar', 'Tugas belajar'], ['nonaktif', 'Nonaktif']];
 
 VIEW.guru = async function (box, id) {
@@ -1223,8 +1686,7 @@ VIEW.pengaturan = async function (box, id) {
     { id: 'lokasi', judul: 'Lokasi dan area absen', isi: [F('lat_sekolah', 'Lintang (latitude)', 'angka'), F('lng_sekolah', 'Bujur (longitude)', 'angka'), F('radius_m', 'Radius area absen (meter)', 'angka', { bantuan: 'Guru hanya bisa absen di dalam radius ini dari titik sekolah.' }), F('akurasi_maks_m', 'Akurasi GPS maksimum (meter)', 'angka', { bantuan: 'Absen ditolak bila sinyal GPS lebih kasar dari ini.' })], khusus: 'lokasi' },
     { id: 'jam', judul: 'Jam dan hari kerja', isi: [F('jam_buka', 'Absen masuk dibuka pukul', 'jam'), F('jam_masuk', 'Batas jam masuk', 'jam'), F('toleransi_menit', 'Toleransi keterlambatan (menit)', 'angka'), F('jam_pulang_min', 'Absen pulang mulai pukul', 'jam'), F('hari_kerja', 'Hari kerja', 'hari'), F('bulan_mulai_tahun_ajaran', 'Tahun ajaran dimulai bulan', 'pilih', { pilihan: BULAN.map(function (b, i) { return [String(i + 1), b]; }) })] },
     { id: 'notif', judul: 'Notifikasi', isi: [F('email_kepsek', 'Email kepala sekolah', 'teks', { bantuan: 'Cadangan bila akun kepala sekolah belum punya email. Beberapa alamat dipisah koma.', hint: 'kepsek@sekolah.sch.id' }), F('wa_kepsek', 'Nomor WhatsApp kepala sekolah', 'teks', { hint: '0812...' }), F('notif_email_aktif', 'Kirim notifikasi email', 'sakelar'), F('tautan_berlaku_jam', 'Tautan keputusan di email berlaku (jam)', 'angka'), F('wa_gateway', 'Pengiriman WhatsApp otomatis', 'pilih', { pilihan: [['none', 'Tidak aktif (kirim manual lewat tautan)'], ['fonnte', 'Gateway berlangganan (Fonnte)']], bantuan: 'Gateway butuh langganan dan token di Script Properties.' })] },
-    { id: 'disiplin', judul: 'Batas catatan disiplin', isi: [F('batas_terlambat_bulan', 'Terlambat dalam sebulan (kali)', 'angka'), F('batas_alpa_bulan', 'Tanpa keterangan dalam sebulan (hari)', 'angka'), F('batas_izin_keluar_bulan', 'Izin keluar dalam sebulan (kali)', 'angka')] },
-    { id: 'qr', judul: 'QR di layar sekolah', isi: [F('qr_dinamis_aktif', 'Wajibkan scan QR di layar sekolah saat absen', 'sakelar', { mati: true, bantuan: 'Belum bisa dinyalakan. Layar QR dibuat di tahap berikutnya; menyalakannya sebelum itu akan memblokir semua absen.' })] }
+    { id: 'disiplin', judul: 'Batas catatan disiplin', isi: [F('batas_terlambat_bulan', 'Terlambat dalam sebulan (kali)', 'angka'), F('batas_alpa_bulan', 'Tanpa keterangan dalam sebulan (hari)', 'angka'), F('batas_izin_keluar_bulan', 'Izin keluar dalam sebulan (kali)', 'angka')] }
   ];
   const peta = SEKSI.map(function (s) { return bagianPengaturan(s, P); });
   box.replaceChildren(judulHal('Pengaturan', 'Data sekolah, tampilan, lokasi, jam kerja, dan notifikasi.'), peta.map(function (d) { return d; }));
@@ -1299,6 +1761,9 @@ VIEW.lainnya = async function (box) {
   box.replaceChildren(judulHal('Menu lainnya'), h('ul', { class: 'daftar' },
     item('izin', 'surat', 'Izin', 'Setujui atau tolak pengajuan, lihat riwayat'),
     item('absen', 'pena', 'Absen manual', 'Catat absen guru yang terkendala jaringan atau HP'),
+    item('layarqr', 'kotak', 'Layar QR dan mode QR', 'Layar di sekolah, aktifkan atau nonaktifkan mode QR dinamis'),
+    item('kartu', 'stempel', 'Kartu guru (cetak)', 'Buat dan cetak kartu ber-QR sebagai cadangan'),
+    item('absenkartu', 'cari', 'Absen dengan kartu', 'Petugas memindai kartu guru yang HP-nya bermasalah'),
     item('libur', 'kalender', 'Hari libur', 'Libur nasional, libur semester, cuti bersama'),
     item('pesan', 'chat', 'Pesan WhatsApp', 'Pengumuman dan pengingat ke guru'),
     item('keputusan', 'stempel', 'Keputusan disiplin', 'Daftar keputusan kepala sekolah'),
@@ -1343,11 +1808,12 @@ const PETUNJUK = {
   LOKASI_TIDAK_ADA: 'Aktifkan lokasi pada HP, lalu coba lagi.',
   JARINGAN: 'Absen belum tercatat. Periksa sinyal internet, lalu coba lagi.',
   SERVER_SIBUK: 'Banyak yang absen bersamaan. Tunggu sebentar, lalu coba lagi.',
-  QR_TIDAK_VALID: 'Absen di sekolah ini memerlukan scan QR yang belum tersedia di aplikasi. Hubungi admin.',
+  QR_TIDAK_VALID: 'Pindai ulang QR di layar sekolah, atau ketik kode 6 angka yang tampil di bawah QR.',
+  QR_TERKUNCI: 'Tunggu 5 menit, lalu coba lagi. Bila terus gagal, hubungi admin.',
   BELUM_DIBUKA: 'Coba lagi setelah jam absen dibuka.',
   BELUM_WAKTU_PULANG: 'Bila perlu keluar lebih awal, ajukan izin keluar dari halaman Beranda.'
 };
-const BISA_ULANG = ['DI_LUAR_LOKASI', 'AKURASI_BURUK', 'LOKASI', 'LOKASI_TIDAK_ADA', 'JARINGAN', 'SERVER_SIBUK'];
+const BISA_ULANG = ['DI_LUAR_LOKASI', 'AKURASI_BURUK', 'LOKASI', 'LOKASI_TIDAK_ADA', 'JARINGAN', 'SERVER_SIBUK', 'QR_TIDAK_VALID'];
 
 function panelGagal(e, ulang, tutup) {
   bunyi('gagal');
@@ -1376,36 +1842,10 @@ function tawaranWa(tautan) {
   }));
 }
 
-// Lembar tunggal: cari lokasi, kirim, lalu tampilkan hasil. Bisa diulang bila gagal.
-function prosesBerlokasi(judul, kirim, sukses) {
-  const kotak = h('div');
-  let lokasi = null, berhasil = false, L;
-  L = lapis(judul, function () { return kotak; }, { tanpaFokus: true, saatTutup: function () { if (lokasi) lokasi.batal(); if (berhasil) tampil(); } });
-  async function jalan() {
-    const info = h('p', { class: 'kecil', text: 'Mengambil lokasi Anda...' });
-    kotak.replaceChildren(h('p', { class: 'tebal', text: 'Mencari lokasi' }), info, h('progress'));
-    let lok;
-    try {
-      lokasi = lokasiTerbaik(function (t) { info.textContent = 'Lokasi ditemukan, ketelitian sekitar ' + t.akurasi + ' meter.'; });
-      lok = await lokasi.janji;
-    } catch (e) { kotak.replaceChildren(panelGagal(e, jalan, L.tutup)); return; }
-    kotak.replaceChildren(h('p', { class: 'tebal', text: 'Mengirim' }), h('p', { class: 'kecil', text: 'Mohon tunggu sebentar...' }), h('progress'));
-    try {
-      progres(1);
-      let hasil;
-      try { hasil = await kirim(lok); } finally { progres(-1); }
-      berhasil = true;
-      bunyi('ok');
-      kotak.replaceChildren(sukses(hasil, L.tutup));
-    } catch (e) { kotak.replaceChildren(panelGagal(e, jalan, L.tutup)); }
-  }
-  jalan();
-}
-
 /* ================= Guru: Beranda ================= */
 function absen(jenis) {
   prosesBerlokasi(jenis === 'masuk' ? 'Absen masuk' : 'Absen pulang',
-    function (lok) { return panggil('absen', { jenis: jenis, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi }); },
+    function (lok, qr) { return panggil('absen', Object.assign({ jenis: jenis, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi }, qr || {})); },
     function (r, tutup) {
       const st = { tepat: ['Tepat waktu', 'tepat'], terlambat: ['Terlambat', 'terlambat'], selesai: ['Tercatat', 'tepat'] }[r.status] || [r.status, 'abu'];
       return panelSukses(jenis === 'masuk' ? 'Absen masuk berhasil' : 'Absen pulang berhasil',
@@ -1425,7 +1865,7 @@ function formIzinKeluar() {
           const a = alasan.value, k = kembali.value;
           tutup();
           prosesBerlokasi('Izin keluar',
-            function (lok) { return panggil('ajukan_izin', { jenis: 'izin_keluar', alasan: a, jam_kembali: k, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi }); },
+            function (lok, qr) { return panggil('ajukan_izin', Object.assign({ jenis: 'izin_keluar', alasan: a, jam_kembali: k, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi }, qr || {})); },
             function (r, tutup2) { return panelSukses('Pengajuan terkirim', [['Menunggu keputusan kepala sekolah']], tutup2, tawaranWa(r.wa_kepsek)); });
         } }, 'Kirim pengajuan'),
         h('button', { class: 'tb sek', onclick: tutup }, 'Batal'))];
@@ -1434,13 +1874,14 @@ function formIzinKeluar() {
 
 function absenKembali(izin) {
   prosesBerlokasi('Absen kembali',
-    function (lok) { return panggil('izin_kembali', { id: izin.id, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi }); },
+    function (lok, qr) { return panggil('izin_kembali', Object.assign({ id: izin.id, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi }, qr || {})); },
     function (r, tutup) { return panelSukses('Kembali tercatat', [['Pukul ' + r.jam + ' WIB', true], ['Durasi di luar sekitar ' + r.durasi_menit + ' menit']], tutup); });
 }
 
 async function berandaGuru(box, id) {
-  const dua = await Promise.all([panggil('riwayat_saya', { bulan: bulanIni() }), panggil('izin_saya')]);
+  const dua = await Promise.all([panggil('riwayat_saya', { bulan: bulanIni() }), panggil('izin_saya'), panggil('pengaturan_publik')]);
   if (id !== renderId) return;
+  S.pub = dua[2]; LS.setItem(K.pub, JSON.stringify(S.pub));
   const tgl = hariIni();
   const rec = dua[0].absensi.filter(function (a) { return a.tanggal === tgl; })[0];
   const keluarHariIni = dua[1].filter(function (i) { return i.jenis === 'izin_keluar' && i.tanggal === tgl; });
@@ -1545,6 +1986,291 @@ VIEW.riwayat = async function (box, id) {
 
 VIEW.beranda = function (box, id) { return S.user.role === 'guru' ? berandaGuru(box, id) : berandaPimpinan(box, id); };
 VIEW.izin = function (box, id) { return S.user.role === 'guru' ? izinGuru(box, id) : izinPimpinan(box, id); };
+
+/* ================= QR: pemindai, layar sekolah, mode QR, kartu ================= */
+const POLA_TOKEN = /^[0-9A-F]{16}$/;
+function qrAktif() { return !!(S.pub && S.pub.qr_dinamis_aktif); }
+async function segarkanPub() {
+  try { S.pub = await panggil('pengaturan_publik'); LS.setItem(K.pub, JSON.stringify(S.pub)); } catch (e) { /* pakai yang lama */ }
+}
+
+// Pemindai kamera. Memakai BarcodeDetector bila ada (Chrome Android), selain itu pembaca bawaan (iPhone dan lainnya).
+function pemindaiQr(opsi) {
+  const video = h('video', { class: 'video-pindai', playsinline: '', autoplay: '', 'aria-label': 'Pratinjau kamera' });
+  video.muted = true;
+  const status = h('p', { class: 'kecil', text: 'Menyalakan kamera...' });
+  const wadah = h('div', { class: 'pemindai' }, h('div', { class: 'bingkai-video' }, video, h('div', { class: 'bidik' })), status);
+  const kanvas = document.createElement('canvas');
+  const g = kanvas.getContext('2d', { willReadFrequently: true });
+  let aktif = true, stream = null, tm = null, detektor = null;
+  try { if ('BarcodeDetector' in window) detektor = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detektor = null; }
+
+  function berhenti() {
+    aktif = false; clearTimeout(tm);
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    stream = null;
+  }
+  async function putaran() {
+    if (!aktif) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      let teks = null;
+      if (detektor) { try { const r = await detektor.detect(video); if (r.length) teks = r[0].rawValue; } catch (e) { detektor = null; } }
+      if (!teks) {
+        try {
+          const skala = Math.min(1, 640 / video.videoWidth);
+          kanvas.width = Math.max(1, Math.round(video.videoWidth * skala));
+          kanvas.height = Math.max(1, Math.round(video.videoHeight * skala));
+          g.drawImage(video, 0, 0, kanvas.width, kanvas.height);
+          teks = QR.baca(g.getImageData(0, 0, kanvas.width, kanvas.height));
+        } catch (e) { teks = null; }
+      }
+      if (teks && opsi.valid(String(teks).trim().toUpperCase())) {
+        const hasil = String(teks).trim().toUpperCase();
+        berhenti(); opsi.saat(hasil); return;
+      }
+    }
+    tm = setTimeout(putaran, 130);
+  }
+  async function mulai() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { status.textContent = 'Kamera tidak tersedia di browser ini. Gunakan kode manual.'; return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
+      if (!aktif) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      video.srcObject = stream;
+      await video.play();
+      status.textContent = opsi.petunjuk;
+      putaran();
+    } catch (e) {
+      status.textContent = e && e.name === 'NotAllowedError'
+        ? 'Izin kamera ditolak. Aktifkan kamera untuk browser ini di pengaturan HP, atau gunakan kode manual.'
+        : 'Kamera tidak bisa dibuka. Gunakan kode manual.';
+    }
+  }
+  mulai();
+  return { el: wadah, berhenti: berhenti };
+}
+
+// Langkah memindai QR layar sekolah (atau mengetik kode 6 angka) di dalam lembar proses.
+function mintaQr(kotak, info, daftarkan) {
+  return new Promise(function (selesai) {
+    const kode = h('input', { type: 'text', inputmode: 'numeric', maxlength: '6', placeholder: '6 angka', autocomplete: 'one-time-code', 'aria-label': 'Kode manual 6 angka' });
+    const pem = pemindaiQr({
+      petunjuk: 'Arahkan kamera ke QR di layar sekolah.',
+      valid: function (t) { return POLA_TOKEN.test(t); },
+      saat: function (t) { kotak.replaceChildren(h('p', { class: 'tebal', text: 'QR terbaca' }), info, h('progress')); selesai({ qr_token: t }); }
+    });
+    daftarkan(pem);
+    kotak.replaceChildren(
+      h('p', { class: 'tebal', text: 'Pindai QR di layar sekolah' }), pem.el, info,
+      h('div', { class: 'isian', style: 'margin-top:12px' }, h('span', { text: 'Kamera bermasalah? Ketik kode 6 angka di bawah QR' }), kode),
+      h('button', { class: 'tb sek', onclick: function () {
+        const k = kode.value.trim();
+        if (!/^[0-9]{6}$/.test(k)) { notif('Kode harus 6 angka.', 'gagal'); return; }
+        pem.berhenti();
+        kotak.replaceChildren(h('p', { class: 'tebal', text: 'Kode diterima' }), info, h('progress'));
+        selesai({ qr_kode: k });
+      } }, 'Pakai kode ini'));
+  });
+}
+
+// Lembar tunggal: (pindai QR bila mode QR aktif) + cari lokasi, kirim, lalu tampilkan hasil. Bisa diulang bila gagal.
+function prosesBerlokasi(judul, kirim, sukses) {
+  const kotak = h('div');
+  let lokasi = null, pem = null, berhasil = false, sudahSegar = false, L;
+  L = lapis(judul, function () { return kotak; }, { tanpaFokus: true, saatTutup: function () { if (pem) pem.berhenti(); if (lokasi) lokasi.batal(); if (berhasil) tampil(); } });
+  async function jalan() {
+    if (pem) { pem.berhenti(); pem = null; }
+    const perlu = qrAktif();
+    const info = h('p', { class: 'kecil', text: 'Mengambil lokasi Anda...' });
+    lokasi = lokasiTerbaik(function (t) { info.textContent = 'Lokasi ditemukan, ketelitian sekitar ' + t.akurasi + ' meter.'; });
+    const janjiLok = lokasi.janji;
+    janjiLok.catch(function () { /* ditangani setelah QR terbaca */ });
+    let qr = null;
+    if (perlu) qr = await mintaQr(kotak, info, function (p) { pem = p; });
+    else kotak.replaceChildren(h('p', { class: 'tebal', text: 'Mencari lokasi' }), info, h('progress'));
+    let lok;
+    try { lok = await janjiLok; } catch (e) { kotak.replaceChildren(panelGagal(e, jalan, L.tutup)); return; }
+    kotak.replaceChildren(h('p', { class: 'tebal', text: 'Mengirim' }), h('p', { class: 'kecil', text: 'Mohon tunggu sebentar...' }), h('progress'));
+    try {
+      const hasil = await kirim(lok, qr);
+      berhasil = true;
+      bunyi('ok');
+      kotak.replaceChildren(sukses(hasil, L.tutup));
+    } catch (e) {
+      // Admin baru menyalakan mode QR sementara tampilan masih memakai pengaturan lama.
+      if (e.kode === 'QR_TIDAK_VALID' && !perlu && !sudahSegar) { sudahSegar = true; await segarkanPub(); jalan(); return; }
+      kotak.replaceChildren(panelGagal(e, jalan, L.tutup));
+    }
+  }
+  jalan();
+}
+
+/* ---------- Layar QR sekolah ---------- */
+function layarQrKomponen(opsi) {
+  opsi = opsi || {};
+  const kartuQr = h('div', { class: 'qr-kartu' + (opsi.besar ? ' besar' : '') });
+  const kode = h('div', { class: 'qr-kode' });
+  const isiBar = h('span');
+  const stat = h('p', { class: 'kecil', style: 'text-align:center;min-height:1.4em' });
+  let mati = false, tm = null, akhirMs = 0;
+  const tick = setInterval(function () { isiBar.style.width = Math.min(100, Math.max(0, akhirMs - Date.now()) / 300) + '%'; }, 250);
+  function berhenti() { mati = true; clearTimeout(tm); clearInterval(tick); }
+  async function ambil() {
+    if (mati) return;
+    try {
+      const r = await panggil('admin_qr_layar', {}, { senyap: true });
+      if (mati) return;
+      kartuQr.innerHTML = QR.svg(QR.buat(r.token), { tepi: 4 });
+      kode.textContent = 'Kode manual ' + r.kode.slice(0, 3) + ' ' + r.kode.slice(3);
+      akhirMs = Date.now() + r.sisa_detik * 1000;
+      stat.textContent = r.aktif ? '' : 'Mode QR belum diaktifkan. Guru masih absen dengan lokasi saja.';
+      tm = setTimeout(ambil, r.sisa_detik * 1000 + 400);
+    } catch (e) {
+      if (SESI_MATI.indexOf(e.kode) >= 0) { berhenti(); return; }
+      stat.textContent = 'Menyambung ulang...';
+      tm = setTimeout(ambil, 4000);
+    }
+  }
+  ambil();
+  return { el: h('div', { class: 'qr-wadah' }, kartuQr, kode, h('div', { class: 'qr-bar' }, isiBar), stat), berhenti: berhenti };
+}
+
+function tampilLayarQR() {
+  if (S.layarKomp) S.layarKomp.berhenti();
+  const komp = layarQrKomponen({ besar: true });
+  S.layarKomp = komp;
+  const layarPenuh = function () { const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().catch(function () { /* abaikan */ }); };
+  app.replaceChildren(h('div', { class: 'layar-qr' },
+    h('div', { class: 'qr-kepala' }, logo(48), h('div', {}, h('b', { text: (S.pub && S.pub.nama_sekolah) || 'Sekolah' }), h('div', { text: 'Pindai untuk absen' }))),
+    komp.el,
+    h('div', { class: 'qr-kaki' },
+      h('button', { class: 'tb sek kecil-tb', onclick: layarPenuh }, 'Layar penuh'),
+      h('button', { class: 'tb sek kecil-tb', onclick: keluar }, 'Keluar'))));
+  const kunciLayar = function () { try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () { /* abaikan */ }); } catch (e) { /* abaikan */ } };
+  kunciLayar();
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && S.user && S.user.role === 'layar') kunciLayar(); });
+}
+
+VIEW.layarqr = async function (box, id) {
+  const pub = await panggil('pengaturan_publik');
+  if (id !== renderId) return;
+  S.pub = pub; LS.setItem(K.pub, JSON.stringify(pub));
+  const nyala = !!pub.qr_dinamis_aktif;
+  const komp = layarQrKomponen({});
+  S.layarKomp = komp;
+  const tombol = h('button', { class: 'tb' + (nyala ? ' bahaya' : ''), onclick: async function () {
+    if (!nyala && !(await tanya('Aktifkan mode QR?', 'Setelah aktif, setiap guru wajib memindai QR di layar sekolah (atau mengetik kode 6 angka) saat absen dan izin keluar. Pastikan layar QR sudah menyala di sekolah.', 'Aktifkan'))) return;
+    if (nyala && !(await tanya('Nonaktifkan mode QR?', 'Guru kembali absen hanya dengan lokasi GPS. Gunakan ini bila layar sekolah mati.', 'Nonaktifkan', true))) return;
+    const h1 = await jalankan(tombol, function () { return panggil('admin_set_pengaturan', { pengaturan: { qr_dinamis_aktif: nyala ? 'FALSE' : 'TRUE' } }); }, nyala ? 'Mode QR dinonaktifkan.' : 'Mode QR diaktifkan.');
+    if (h1) tampil();
+  } }, nyala ? 'Nonaktifkan mode QR' : 'Aktifkan mode QR');
+  box.replaceChildren(judulHal('Layar QR dan mode QR', 'QR berganti tiap 30 detik di layar sekolah, jadi guru harus benar-benar hadir untuk absen.'),
+    h('div', { class: 'rantai', style: 'margin:0 0 8px' }, lencana(nyala ? 'Mode QR aktif' : 'Mode QR nonaktif', nyala ? 'tepat' : 'abu')),
+    h('p', { text: nyala ? 'Guru wajib memindai QR (atau mengetik kode 6 angka) saat absen dan izin keluar.' : 'Guru absen hanya dengan lokasi GPS. Nyalakan mode QR setelah layar sekolah berfungsi.' }),
+    h('div', { class: 'aksi', style: 'margin-top:0' }, tombol),
+    h('h2', { class: 'sekat', text: 'Pratinjau layar sekolah' }),
+    h('div', { class: 'kotak-tampil' }, komp.el),
+    h('h2', { class: 'sekat', text: 'Memasang layar di sekolah' }),
+    h('ol', { class: 'langkah' },
+      h('li', { text: 'Di menu Guru, tambah pengguna baru dengan peran "Layar QR sekolah (tablet)". Layar ini hanya bisa menampilkan QR, tidak bisa melihat data lain.' }),
+      h('li', { text: 'Di tablet, monitor, atau HP bekas, buka alamat aplikasi dan masuk dengan akun itu.' }),
+      h('li', { text: 'Letakkan di ruang guru atau dekat gerbang, lalu tekan Layar penuh. Pastikan layar tetap menyala dan terhubung internet.' }),
+      h('li', { text: 'Setelah satu guru berhasil memindai, nyalakan mode QR di atas.' })));
+};
+
+/* ---------- Kartu guru: cetak ---------- */
+function kartuEl(k) {
+  const qrKotak = h('div', { class: 'kartu-qr' });
+  qrKotak.innerHTML = QR.svg(QR.buat(k.payload), { tepi: 2 });
+  return h('div', { class: 'kartu-id' },
+    h('div', { class: 'kartu-kepala' }, logo(26), h('div', {}, h('b', { text: (S.pub && S.pub.nama_sekolah) || 'Sekolah' }), h('span', { text: 'Kartu Absensi' }))),
+    h('div', { class: 'kartu-badan' },
+      h('div', { class: 'kartu-teks' }, h('div', { class: 'kartu-nama', text: k.nama }), h('div', { text: 'NIY ' + k.niy }), k.jabatan ? h('div', { text: k.jabatan }) : null),
+      qrKotak));
+}
+
+VIEW.kartu = async function (box, id) {
+  const users = (await muatUsers(true)).filter(function (u) { return u.role === 'guru' && u.status === 'aktif'; }).sort(function (a, b) { return a.nama < b.nama ? -1 : 1; });
+  if (id !== renderId) return;
+  const pilihan = {};
+  let q = '';
+  const daftar = h('ul', { class: 'daftar', style: 'max-height:300px;overflow:auto;border:1px solid var(--garis);border-radius:12px;padding:0 12px' });
+  function gambar() {
+    const kata = q.trim().toLowerCase();
+    daftar.replaceChildren(users.filter(function (u) { return !kata || u.nama.toLowerCase().indexOf(kata) >= 0 || String(u.niy).toLowerCase().indexOf(kata) >= 0; }).map(function (u) {
+      return h('li', { class: 'baris' }, h('input', { type: 'checkbox', id: 'k' + u.niy, checked: !!pilihan[u.niy], style: 'width:22px;height:22px;accent-color:var(--utama)', onchange: function (e) { pilihan[u.niy] = e.target.checked; } }),
+        h('label', { for: 'k' + u.niy, class: 'utama', text: u.nama + ' (' + u.niy + ')' }));
+    }));
+  }
+  const hasil = h('div', { class: 'kisi-kartu' });
+  const kepalaHasil = h('div');
+  const tombol = h('button', { class: 'tb', onclick: async function () {
+    const niys = Object.keys(pilihan).filter(function (k) { return pilihan[k]; });
+    if (!niys.length) { notif('Pilih minimal satu guru.', 'gagal'); return; }
+    if (!(await tanya('Buat kartu baru?', 'Kartu lama milik guru yang dipilih langsung tidak berlaku. QR kartu baru hanya tampil sekarang, jadi cetak sebelum meninggalkan halaman ini.', 'Buat kartu'))) return;
+    hasil.replaceChildren();
+    const prog = h('progress', { max: niys.length, value: 0 });
+    kepalaHasil.replaceChildren(h('p', { class: 'kecil', text: 'Membuat kartu...' }), prog);
+    let selesai = 0, galatPesan = '';
+    tombol.disabled = true;
+    for (let i = 0; i < niys.length; i += 25) {
+      const grup = niys.slice(i, i + 25);
+      try {
+        const r = await panggil('admin_buat_kartu_massal', { niys: grup });
+        r.forEach(function (k) { hasil.append(kartuEl(k)); });
+        selesai += r.length;
+      } catch (e) { galatPesan = e.message; break; }
+      prog.value = Math.min(niys.length, i + grup.length);
+    }
+    tombol.disabled = false;
+    if (galatPesan) notif(galatPesan, 'gagal'); else bunyi('ok');
+    kepalaHasil.replaceChildren(h('div', { class: 'kotak-info', text: selesai + ' kartu dibuat. Cetak sekarang (atau simpan sebagai PDF lewat dialog cetak). Setelah meninggalkan halaman ini, QR tidak bisa ditampilkan lagi.' }),
+      selesai ? h('div', { class: 'aksi tanpa-cetak', style: 'margin-top:0' }, h('button', { class: 'tb', onclick: function () { window.print(); } }, 'Cetak kartu')) : null);
+  } }, ikon('plus', 18), 'Buat kartu untuk yang dipilih');
+  const semua = h('button', { class: 'tb sek kecil-tb', type: 'button', onclick: function () { const mati = Object.keys(pilihan).filter(function (k) { return pilihan[k]; }).length === 0; users.forEach(function (u) { pilihan[u.niy] = mati; }); gambar(); } }, 'Pilih semua atau kosongkan');
+  box.replaceChildren(h('div', { class: 'tanpa-cetak' },
+    judulHal('Kartu guru', 'Kartu ber-QR sebagai cadangan bila HP guru bermasalah. Petugas memindai kartu dari menu Absen dengan kartu.'),
+    h('div', { class: 'bilah' }, h('input', { type: 'text', placeholder: 'Cari nama atau NIY', 'aria-label': 'Cari guru', oninput: function (e) { q = e.target.value; gambar(); } }), semua),
+    users.length ? daftar : kosong('Belum ada guru aktif', 'Tambahkan guru di menu Guru terlebih dahulu.'),
+    h('div', { class: 'aksi' }, tombol)), kepalaHasil, hasil);
+  gambar();
+};
+
+/* ---------- Petugas: absen dengan kartu ---------- */
+function bukaAbsenKartu(jenis) {
+  const kotak = h('div');
+  let pem = null, lokasi = null, lokCache = null, L;
+  L = lapis(jenis === 'masuk' ? 'Absen masuk dengan kartu' : 'Absen pulang dengan kartu', function () { return kotak; }, { tanpaFokus: true, saatTutup: function () { if (pem) pem.berhenti(); if (lokasi) lokasi.batal(); } });
+  function pindai() {
+    if (pem) pem.berhenti();
+    pem = pemindaiQr({ petunjuk: 'Arahkan kamera ke QR pada kartu guru.', valid: function (t) { return POLA_TOKEN.test(t); }, saat: kirim });
+    kotak.replaceChildren(h('p', { class: 'tebal', text: 'Pindai kartu guru' }), pem.el);
+  }
+  async function kirim(token) {
+    kotak.replaceChildren(h('p', { class: 'tebal', text: 'Memproses kartu' }), h('progress'));
+    try {
+      let lok = lokCache && Date.now() - lokCache.waktu < 90000 ? lokCache : null;
+      if (!lok) { lokasi = lokasiTerbaik(); const l = await lokasi.janji; lok = { lat: l.lat, lng: l.lng, akurasi: l.akurasi, waktu: Date.now() }; lokCache = lok; }
+      const r = await panggil('admin_absen_kartu', { token: token, jenis: jenis, lat: lok.lat, lng: lok.lng, akurasi: lok.akurasi });
+      bunyi('ok');
+      const st = { tepat: ['Tepat waktu', 'tepat'], terlambat: ['Terlambat', 'terlambat'], selesai: ['Tercatat', 'tepat'] }[r.status] || [r.status, 'abu'];
+      kotak.replaceChildren(panelSukses(jenis === 'masuk' ? 'Absen masuk tercatat' : 'Absen pulang tercatat',
+        [[r.nama, true], ['NIY ' + r.niy], ['Pukul ' + r.jam.slice(0, 5) + ' WIB']], L.tutup, h('div', { style: 'margin-top:10px' }, lencana(st[0], st[1]),
+          h('div', { class: 'aksi', style: 'justify-content:center' }, h('button', { class: 'tb sek', onclick: pindai }, 'Pindai kartu berikutnya')))));
+    } catch (e) { kotak.replaceChildren(panelGagal(e, pindai, L.tutup)); }
+  }
+  pindai();
+}
+
+VIEW.absenkartu = async function (box) {
+  const mode = S.modeKartu || 'masuk';
+  const seg = h('div', { class: 'segmen', role: 'group' }, [['masuk', 'Absen masuk'], ['pulang', 'Absen pulang']].map(function (t) {
+    return h('button', { type: 'button', 'aria-pressed': String(mode === t[0]), onclick: function () { S.modeKartu = t[0]; tampil(); } }, t[1]);
+  }));
+  box.replaceChildren(judulHal('Absen dengan kartu', 'Untuk guru yang HP-nya bermasalah. Buka halaman ini di HP petugas yang berada di sekolah.'), seg,
+    h('div', { class: 'aksi', style: 'margin-top:0' }, h('button', { class: 'tb besar', onclick: function () { bukaAbsenKartu(S.modeKartu || 'masuk'); } }, ikon('cari', 20), 'Pindai kartu guru')),
+    h('p', { class: 'kecil', text: 'Lokasi HP petugas dicek seperti absen biasa. Kartu yang hilang bisa diganti dari menu Kartu guru; kartu lama otomatis tidak berlaku.' }));
+};
 
 /* ================= Mulai ================= */
 async function boot() {
