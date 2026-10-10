@@ -217,6 +217,17 @@ progress{width:100%;height:10px;accent-color:var(--utama)}
   .kartu-id{width:85.6mm;height:54mm;border:.3mm solid #999;border-radius:3mm}
   .kartu-kepala{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+.kembali{display:inline-flex;align-items:center;gap:6px;margin:14px 0 0;min-height:40px;color:var(--utama);font-weight:600;text-decoration:none}
+.kotak-profil{padding:2px 14px;border:1px solid var(--garis);border-radius:14px;background:#fff;margin:0 0 6px}
+.baris-info{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--garis)}
+.baris-info:last-child{border-bottom:0}
+.baris-info .tebal{text-align:right;overflow-wrap:anywhere}
+.garis-tipis{border:0;border-top:1px solid #d3dbd8;margin:28px 0 14px}
+.info-app h3{font-size:15px;color:var(--redam);margin:0 0 4px}
+.peringatan{padding:11px 13px;border-radius:12px;background:#fbf0d9;color:#6b4a07;margin:0 0 14px;font-size:14px}
+.pratinjau-penuh{position:fixed;inset:0;z-index:90;overflow:auto}
+.qr-kaki{margin-top:10px}
+@media(max-width:699px){.lembar.penuh{height:100dvh;max-height:100dvh;border-radius:0;max-width:none}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition:none!important}}
 </style>
 </head>
@@ -234,7 +245,8 @@ progress{width:100%;height:10px;accent-color:var(--utama)}
 // Alamat Web App Apps Script (berakhiran /exec) dibaca dari berkas config.js.
 // Bila kosong, alamat diminta saat pertama kali dibuka dan disimpan di perangkat itu.
 const API_URL_DEFAULT = String(window.ABSENSI_API_URL || '').trim();
-const VERSI = '1.2';
+const VERSI = '1.3';
+const TGL_UPDATE = '8 Oktober 2026';
 const LS = window.localStorage;
 const K = { api: 'absensi.api', token: 'absensi.token', dev: 'absensi.dev', suara: 'absensi.suara', pub: 'absensi.pub' };
 const TZ = 'Asia/Jakarta';
@@ -291,6 +303,7 @@ const IK = {
   centang: '<path d="M5 12l5 5 9-10"/>',
   silang: '<path d="M6 6l12 12M18 6L6 18"/>',
   kanan: '<path d="M9 5l7 7-7 7"/>',
+  kiri: '<path d="M15 5l-7 7 7 7"/>',
   kalender: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
   salin: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/>',
   chat: '<path d="M4 20l1.4-4.2A8 8 0 1112 20a8 8 0 01-3.6-.9z"/>',
@@ -809,7 +822,7 @@ async function panggil(action, data, opsi) {
       if (j.ok) return j.data;
       if (j.kode === 'SERVER_SIBUK' && i < 2) { await tunda(1200 * (i + 1)); continue; }
       if (SESI_MATI.indexOf(j.kode) >= 0 && action !== 'login' && S.user) { keluarPaksa(j.pesan); }
-      throw galat(j.kode, j.pesan);
+      throw galat(j.kode, j.pesan + (j.detail ? ' [' + j.detail + ']' : ''));
     }
   } finally { if (!senyap) progres(-1); }
 }
@@ -860,7 +873,7 @@ function lapis(judul, isi, opsi) {
     if (opsi.saatTutup) opsi.saatTutup();
   };
   const esc = function (e) { if (e.key === 'Escape') tutup(); };
-  const lembar = h('div', { class: 'lembar', role: 'dialog', 'aria-modal': 'true', 'aria-label': judul },
+  const lembar = h('div', { class: 'lembar' + (opsi.penuh ? ' penuh' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': judul },
     h('div', { class: 'kepala-lembar' }, h('h2', { text: judul }),
       h('button', { class: 'tutup', 'aria-label': 'Tutup', onclick: tutup }, ikon('silang', 18))),
     h('div', {}, isi(tutup)));
@@ -1085,7 +1098,9 @@ function tampil() {
   if (!box) return;
   box.replaceChildren(rangka(4));
   window.scrollTo(0, 0);
-  VIEW[rute](box, id).catch(function (e) { if (id === renderId) box.replaceChildren(panelGalat(e)); });
+  VIEW[rute](box, id).then(function () {
+    if (id === renderId && peran === 'admin' && INDUK[rute]) box.prepend(h('a', { class: 'kembali', href: '#/lainnya' }, ikon('kiri', 18), 'Kembali ke Lainnya'));
+  }).catch(function (e) { if (id === renderId) box.replaceChildren(panelGalat(e)); });
 }
 window.addEventListener('hashchange', function () { if (S.user) tampil(); });
 
@@ -1128,13 +1143,13 @@ async function berandaPimpinan(box, id) {
   const perlu = rek.baris.filter(function (b) { return ['tanpa_keterangan', 'terlambat', 'belum_absen', 'izin', 'dinas_luar'].indexOf(b.status) >= 0; });
   const prioritas = { tanpa_keterangan: 0, terlambat: 1, belum_absen: 2, izin: 3, dinas_luar: 4 };
   perlu.sort(function (a, b) { return prioritas[a.status] - prioritas[b.status] || (a.nama < b.nama ? -1 : 1); });
-  const kirim = h('button', { class: 'tb sek', onclick: function (e) { kirimLaporan(e.currentTarget, { jenis: 'harian', tanggal: tgl }); } }, ikon('surat', 18), 'Kirim rekap ke email kepala sekolah');
+  const kirim = h('button', { class: 'tb sek', onclick: function (e) { kirimLaporan(e.currentTarget, { jenis: 'harian', tanggal: tgl, ke: 'saya' }); } }, ikon('surat', 18), 'Kirim rekap ke email saya');
 
   box.replaceChildren(
     hero(S.user.nama),
     h('div', { class: 'bilah' }, h('h2', { text: 'Kehadiran', style: 'flex:2 1 120px;font-size:20px' }),
       h('input', { type: 'date', value: tgl, max: hariIni(), 'aria-label': 'Pilih tanggal', onchange: function (e) { S.tgl = e.target.value || hariIni(); tampil(); } })),
-    h('p', { class: 'kalimat', text: rek.libur ? 'Hari libur atau bukan hari kerja.' : adaData ? hadir + ' dari ' + rek.total + ' guru dan pegawai hadir' + (tgl === hariIni() ? ' hari ini' : ' pada ' + tglPendek(tgl)) : 'Belum ada data kehadiran.' }),
+    h('p', { class: 'kalimat', text: rek.libur ? (tgl === hariIni() ? 'Hari ini libur. Tidak ada absensi hari ini.' : 'Tanggal ini hari libur atau bukan hari kerja.') : adaData ? hadir + ' dari ' + rek.total + ' guru dan pegawai hadir' + (tgl === hariIni() ? ' hari ini' : ' pada ' + tglPendek(tgl)) : 'Belum ada data kehadiran.' }),
     sebaran, legenda,
     menunggu.length ? [h('h2', { class: 'sekat', text: 'Izin menunggu keputusan (' + menunggu.length + ')' }),
       h('ul', { class: 'daftar' }, menunggu.slice(0, 4).map(function (i) {
@@ -1192,21 +1207,28 @@ async function izinPimpinan(box, id) {
         h('div', { class: 'aksi', style: 'margin-bottom:0' },
           h('button', { class: 'tb kecil-tb', onclick: function () { putuskan(i, 'disetujui'); } }, ikon('centang', 16), 'Setujui'),
           h('button', { class: 'tb kecil-tb bahaya', onclick: function () { putuskan(i, 'ditolak'); } }, ikon('silang', 16), 'Tolak'),
-          i.no_wa ? h('button', { class: 'tb kecil-tb sek', onclick: function () { bukaLuar(linkWa(i.no_wa, "Assalamu'alaikum " + i.nama + ', terkait pengajuan ' + JENIS_IZIN[i.jenis].toLowerCase() + ' Anda: ')); } }, ikon('chat', 16), 'Hubungi') : null)));
+          i.no_wa ? h('button', { class: 'tb kecil-tb sek', onclick: function () { bukaLuar(linkWa(i.no_wa, "Assalamu'alaikum warahmatullahi wabarakatuh. Bapak/Ibu " + i.nama + ', terkait pengajuan ' + JENIS_IZIN[i.jenis].toLowerCase() + ' Anda: ')); } }, ikon('chat', 16), 'Hubungi') : null)));
   }
 
   function putuskan(i, keputusan) {
     lapis(keputusan === 'disetujui' ? 'Setujui pengajuan' : 'Tolak pengajuan', function (tutup) {
-      const cat = h('textarea', { maxlength: '200', placeholder: 'Catatan untuk guru (opsional)' });
-      const tombol = h('button', { class: 'tb' + (keputusan === 'ditolak' ? ' bahaya' : ''), onclick: async function () {
+      const kotak = h('div');
+      const cat = h('textarea', { maxlength: '200', placeholder: 'Catatan untuk pemohon (opsional)' });
+      const tombol = h('button', { class: 'tb besar' + (keputusan === 'ditolak' ? ' bahaya' : ''), onclick: async function () {
         const h1 = await jalankan(tombol, function () { return panggil('putusan_izin', { id: i.id, keputusan: keputusan, catatan: cat.value }); },
           keputusan === 'disetujui' ? 'Pengajuan disetujui.' : 'Pengajuan ditolak.');
         if (!h1) return;
-        tutup(); muat();
-        tawarkanWa(h1.r.wa_guru, 'Kabari guru lewat WhatsApp?', 'Keputusan sudah dikirim ke email guru. Kirim juga lewat WhatsApp bila perlu.');
+        kotak.replaceChildren(h('div', { style: 'text-align:center' },
+          h('div', { class: 'centang-besar' }, ikon('centang', 36)),
+          h('h3', { text: keputusan === 'disetujui' ? 'Pengajuan disetujui' : 'Pengajuan ditolak', style: 'margin:12px 0 6px;font-size:22px' }),
+          h('p', { class: 'kecil', text: 'Pemohon sudah diberi tahu lewat email bila alamatnya terisi.' }),
+          tawaranWa(h1.r.wa_guru),
+          h('div', { class: 'aksi', style: 'justify-content:center' }, h('button', { class: 'tb', onclick: tutup }, 'Keluar'))));
       } }, keputusan === 'disetujui' ? 'Setujui' : 'Tolak');
-      return [h('p', { text: i.nama + ': ' + JENIS_IZIN[i.jenis] + ', ' + teksIzin(i) }), isian('Catatan', cat), h('div', { class: 'aksi' }, tombol, h('button', { class: 'tb sek', onclick: tutup }, 'Batal'))];
-    });
+      kotak.append(h('div', { class: 'kotak-info', text: i.nama + ': ' + JENIS_IZIN[i.jenis] + ', ' + teksIzin(i) }), h('p', { class: 'kecil', text: 'Alasan: ' + i.alasan }),
+        isian('Catatan', cat), h('div', { class: 'aksi' }, tombol, h('button', { class: 'tb sek', onclick: tutup }, 'Batal')));
+      return kotak;
+    }, { penuh: true, saatTutup: function () { muat(); } });
   }
   await muat();
 };
@@ -1250,7 +1272,7 @@ VIEW.laporan = async function (box, id) {
     h('div', { class: 'bilah' }, h('input', { type: 'month', value: st.bulan, max: bulanIni(), 'aria-label': 'Pilih bulan', onchange: function (e) { st.bulan = e.target.value || bulanIni(); tampil(); } }), cari),
     segmen, daftar,
     h('div', { class: 'aksi' },
-      h('button', { class: 'tb sek', onclick: function (e) { kirimLaporan(e.currentTarget, { jenis: 'bulanan', bulan: data.bulan }); } }, ikon('surat', 18), 'Kirim ke email kepala sekolah'),
+      h('button', { class: 'tb sek', onclick: function (e) { kirimLaporan(e.currentTarget, { jenis: 'bulanan', bulan: data.bulan, ke: 'saya' }); } }, ikon('surat', 18), 'Kirim ke email saya'),
       h('button', { class: 'tb sek', onclick: function () { unduhRekap(data); } }, ikon('unggah', 18), 'Unduh CSV')));
   gambar();
 };
@@ -1327,8 +1349,10 @@ VIEW.akun = async function (box) {
   const baru = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8 });
   const ulang = h('input', { type: 'password', autocomplete: 'new-password' });
   const tombol = h('button', { class: 'tb', type: 'submit' }, 'Ganti kata sandi');
-  box.replaceChildren(judulHal(S.user.nama, PERAN[S.user.role] + ', NIY ' + S.user.niy),
-    h('div', { class: 'sakelar' }, suara, h('div', {}, h('div', { class: 'tebal', text: 'Bunyi notifikasi' }), h('div', { class: 'kecil', text: 'Nada singkat saat aksi berhasil atau gagal.' }))),
+  const u = S.user;
+  const info = function (k, v) { return h('div', { class: 'baris-info' }, h('span', { class: 'kecil', text: k }), h('span', { class: 'tebal', text: v || '-' })); };
+  box.replaceChildren(judulHal('Akun saya'),
+    h('div', { class: 'kotak-profil' }, info('Nama', u.nama), info('NIY', u.niy), info('Jabatan', u.jabatan || PERAN[u.role]), info('Peran', PERAN[u.role])),
     h('h2', { class: 'sekat', text: 'Ganti kata sandi' }),
     h('form', { onsubmit: async function (e) {
       e.preventDefault();
@@ -1337,8 +1361,12 @@ VIEW.akun = async function (box) {
       const r = await jalankan(tombol, function () { return panggil('ganti_password', { lama: lama.value, baru: baru.value }); }, 'Kata sandi diperbarui.');
       if (r) { lama.value = baru.value = ulang.value = ''; }
     } }, isian('Kata sandi saat ini', lama), isian('Kata sandi baru', baru, 'Minimal 8 karakter.'), isian('Ulangi kata sandi baru', ulang), tombol),
+    h('h2', { class: 'sekat', text: 'Notifikasi dan suara' }),
+    h('label', { class: 'sakelar' }, suara, h('div', {}, h('div', { class: 'tebal', text: 'Bunyi notifikasi' }), h('div', { class: 'kecil', text: 'Nada singkat saat aksi berhasil atau gagal.' }))),
     h('div', { class: 'aksi', style: 'margin-top:22px' }, h('button', { class: 'tb sek', onclick: keluar }, ikon('keluar', 18), 'Keluar')),
-    h('p', { class: 'kecil', text: 'Versi ' + VERSI + '. Server: ' + urlApi().replace(/^https?:\/\//, '').slice(0, 40) + '...' }));
+    h('hr', { class: 'garis-tipis' }),
+    h('section', { class: 'info-app' }, h('h3', { text: 'Info aplikasi' }),
+      info('Versi', VERSI), info('Server', urlApi().replace(/^https?:\/\//, '').split('/')[0]), info('Update terakhir', TGL_UPDATE), info('Dev.', "Abu Karim Endri'S")));
 };
 
 /* ================= Admin: pengguna ================= */
@@ -1382,7 +1410,7 @@ VIEW.guru = async function (box, id) {
 };
 
 function tampilkanAkunBaru(u, sandi) {
-  const teks = "Assalamu'alaikum " + u.nama + '. Akun absensi Anda sudah dibuat.\nNIY: ' + u.niy + '\nKata sandi awal: ' + sandi + '\nSetelah masuk, Anda diminta mengganti kata sandi.';
+  const teks = "Assalamu'alaikum warahmatullahi wabarakatuh. Bapak/Ibu " + u.nama + '. Akun absensi Anda sudah dibuat.\nNIY: ' + u.niy + '\nKata sandi awal: ' + sandi + '\nSetelah masuk, Anda diminta mengganti kata sandi.';
   lapis('Akun siap dipakai', function (tutup) {
     return [h('p', { text: u.nama + ' (NIY ' + u.niy + ')' }), h('div', { class: 'sandi', text: sandi }),
       h('p', { class: 'kecil', style: 'margin-top:8px', text: 'Kata sandi ini hanya tampil sekali. Sampaikan ke yang bersangkutan.' }),
@@ -1449,7 +1477,7 @@ function formUser(u) {
       h('div', { class: 'dua' }, isian('Peran', role), isian('Status', status)),
       saya ? h('p', { class: 'kecil', text: 'Peran dan status akun sendiri tidak bisa diubah.' }) : null,
       h('div', { class: 'aksi' }, simpan, resetPerangkat, resetSandi,
-        u.no_wa ? h('button', { class: 'tb sek', onclick: function () { bukaLuar(linkWa(u.no_wa, "Assalamu'alaikum " + u.nama + ', ')); } }, ikon('chat', 18), 'Kirim WhatsApp') : null)];
+        u.no_wa ? h('button', { class: 'tb sek', onclick: function () { bukaLuar(linkWa(u.no_wa, "Assalamu'alaikum warahmatullahi wabarakatuh. Bapak/Ibu " + u.nama + ', ')); } }, ikon('chat', 18), 'Kirim WhatsApp') : null)];
   });
 }
 
@@ -1879,7 +1907,7 @@ function absenKembali(izin) {
 }
 
 async function berandaGuru(box, id) {
-  const dua = await Promise.all([panggil('riwayat_saya', { bulan: bulanIni() }), panggil('izin_saya'), panggil('pengaturan_publik')]);
+  const dua = await Promise.all([panggil('riwayat_saya', { bulan: bulanIni() }), panggil('izin_saya'), panggil('pengaturan_publik'), panggil('info_libur', { tanggal: hariIni() })]);
   if (id !== renderId) return;
   S.pub = dua[2]; LS.setItem(K.pub, JSON.stringify(S.pub));
   const tgl = hariIni();
@@ -1904,6 +1932,9 @@ async function berandaGuru(box, id) {
   } else if (rec && (rec.status === 'izin' || rec.status === 'dinas_luar')) {
     kal.textContent = 'Hari ini tercatat ' + STATUS[rec.status][0].toLowerCase() + '.';
     info.push(h('p', { class: 'kecil', text: 'Anda tidak perlu absen hari ini.' }));
+  } else if (dua[3].seluruhnya_libur) {
+    kal.textContent = 'Hari ini libur.';
+    info.push(h('p', { class: 'kecil', text: 'Anda tidak perlu absen atau mengajukan izin.' + (dua[3].libur[0] && dua[3].libur[0].keterangan !== 'Bukan hari kerja' ? ' Keterangan: ' + dua[3].libur[0].keterangan + '.' : '') }));
   } else {
     kal.textContent = 'Anda belum absen masuk.';
     info.push(h('p', { class: 'kecil', text: 'Pastikan Anda berada di area sekolah dan lokasi HP menyala.' }));
@@ -1927,7 +1958,26 @@ function formIzinHari(jenis) {
     const dari = h('input', { type: 'date', value: hariIni(), min: tambahHari(hariIni(), -7) });
     const sampai = h('input', { type: 'date', min: tambahHari(hariIni(), -7) });
     const alasan = h('textarea', { maxlength: '300', placeholder: jenis === 'dinas_luar' ? 'Contoh: Pelatihan kurikulum di dinas pendidikan' : 'Contoh: Sakit, ada surat dokter' });
+    const peringatan = h('div', { class: 'peringatan', hidden: true });
+    let libur = false;
+    async function cekLibur() {
+      if (!dari.value) return;
+      try {
+        const r = await panggil('info_libur', { tanggal: dari.value, tanggal_selesai: sampai.value && sampai.value >= dari.value ? sampai.value : dari.value });
+        libur = r.seluruhnya_libur;
+        if (r.seluruhnya_libur) {
+          peringatan.textContent = 'Tanggal yang Anda pilih jatuh pada hari libur atau bukan hari kerja' + (r.libur[0] && r.libur[0].keterangan !== 'Bukan hari kerja' ? ' (' + r.libur[0].keterangan + ')' : '') + '. Anda tidak perlu mengajukan izin.';
+          peringatan.hidden = false;
+        } else if (r.libur.length) {
+          peringatan.textContent = 'Sebagian tanggal berupa hari libur (' + r.libur.map(function (x) { return tglPendek(x.tanggal); }).join(', ') + ') dan tidak dihitung sebagai izin.';
+          peringatan.hidden = false;
+        } else peringatan.hidden = true;
+      } catch (e) { libur = false; peringatan.hidden = true; }
+    }
+    dari.addEventListener('change', cekLibur); sampai.addEventListener('change', cekLibur); cekLibur();
     const tombol = h('button', { class: 'tb', onclick: async function () {
+      await cekLibur(); // pastikan status libur sesuai tanggal terakhir yang dipilih
+      if (libur) { notif('Tanggal yang dipilih hari libur. Anda tidak perlu mengajukan izin.', 'gagal'); return; }
       if (alasan.value.trim().length < 3) { notif('Tulis alasan terlebih dahulu.', 'gagal'); return; }
       if (!dari.value) { notif('Pilih tanggal mulai.', 'gagal'); return; }
       if (sampai.value && sampai.value < dari.value) { notif('Tanggal akhir tidak boleh sebelum tanggal mulai.', 'gagal'); return; }
@@ -1937,7 +1987,7 @@ function formIzinHari(jenis) {
       tawarkanWa(h1.r.wa_kepsek, 'Kabari kepala sekolah lewat WhatsApp?', 'Pengajuan sudah dikirim ke email kepala sekolah. Kirim juga lewat WhatsApp bila perlu.');
     } }, 'Kirim pengajuan');
     return [h('p', { class: 'kecil', text: 'Lokasi tidak dicek untuk pengajuan ini. Keputusan kepala sekolah dikirim ke email Anda dan tampil di sini.' }),
-      h('div', { class: 'dua' }, isian('Mulai tanggal', dari), isian('Sampai (opsional)', sampai)), isian('Alasan', alasan),
+      h('div', { class: 'dua' }, isian('Mulai tanggal', dari), isian('Sampai (opsional)', sampai)), peringatan, isian('Alasan', alasan),
       h('div', { class: 'aksi' }, tombol, h('button', { class: 'tb sek', onclick: tutup }, 'Batal'))];
   });
 }
@@ -2106,6 +2156,25 @@ function prosesBerlokasi(judul, kirim, sukses) {
 }
 
 /* ---------- Layar QR sekolah ---------- */
+// Pratinjau layar QR memenuhi seluruh layar, dengan tombol Kembali.
+function bukaPratinjauPenuh() {
+  const komp = layarQrKomponen({ besar: true });
+  const nama = (S.pub && S.pub.nama_sekolah) || 'Absensi';
+  const tutup = function () {
+    komp.berhenti();
+    el.remove();
+    if (!document.querySelector('.lapis')) document.body.classList.remove('kunci');
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () { /* abaikan */ });
+  };
+  const el = h('div', { class: 'layar-qr pratinjau-penuh' },
+    h('div', { class: 'qr-kepala' }, logo(48), h('div', {}, h('b', { text: nama }), h('div', { text: 'Pindai untuk absen' }))),
+    komp.el,
+    h('div', { class: 'qr-kaki aksi', style: 'justify-content:center' }, h('button', { class: 'tb sek', onclick: tutup }, ikon('kiri', 18), 'Kembali')));
+  document.body.append(el);
+  document.body.classList.add('kunci');
+  if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function () { /* tidak semua perangkat mengizinkan */ });
+}
+
 function layarQrKomponen(opsi) {
   opsi = opsi || {};
   const kartuQr = h('div', { class: 'qr-kartu' + (opsi.besar ? ' besar' : '') });
@@ -2169,6 +2238,7 @@ VIEW.layarqr = async function (box, id) {
     h('p', { text: nyala ? 'Guru wajib memindai QR (atau mengetik kode 6 angka) saat absen dan izin keluar.' : 'Guru absen hanya dengan lokasi GPS. Nyalakan mode QR setelah layar sekolah berfungsi.' }),
     h('div', { class: 'aksi', style: 'margin-top:0' }, tombol),
     h('h2', { class: 'sekat', text: 'Pratinjau layar sekolah' }),
+    h('div', { class: 'aksi', style: 'margin:0 0 10px' }, h('button', { class: 'tb sek kecil-tb', onclick: bukaPratinjauPenuh }, 'Layar penuh')),
     h('div', { class: 'kotak-tampil' }, komp.el),
     h('h2', { class: 'sekat', text: 'Memasang layar di sekolah' }),
     h('ol', { class: 'langkah' },
